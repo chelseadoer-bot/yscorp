@@ -42,11 +42,12 @@ def clean_postcode(value) -> str:
     # 엑셀이 숫자로 저장하며 앞자리 0을 떨어뜨린 경우(4자리) → 5자리로 복원
     if len(digits) == 4:
         digits = "0" + digits
+    # 최종양식은 하이픈 없는 5자리 숫자(예: 38409, 07355)
     if len(digits) == 5:
-        return f"{digits[:3]}-{digits[3:]}"
-    if len(digits) == 6:  # 구 우편번호(XXX-XXX)
-        return f"{digits[:3]}-{digits[3:]}"
-    # 그 외에는 이중 하이픈만 정리
+        return digits
+    if 3 <= len(digits) <= 6:
+        return digits
+    # 숫자로 정리가 안 되면 이중 하이픈만 정리해 원본 유지
     return re.sub(r"-{2,}", "-", text)
 
 

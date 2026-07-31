@@ -92,6 +92,7 @@ def convert_workbook(path: str, sheet: Optional[str] = None) -> ConversionResult
         # 이름/주소가 모두 비어 있으면 유효 주문이 아님
         if not clean_text(std.get("recipient")) and not clean_text(std.get("address")):
             continue
+        std["no"] = len(rows) + 1
         rows.append(std)
 
         if order_date is None and vendor.date_header:
@@ -107,6 +108,8 @@ def convert_workbook(path: str, sheet: Optional[str] = None) -> ConversionResult
         vendor_name = vendor.name_from_headers(header_map) or vendor_name
     if vendor.name_from_sheet:
         vendor_name = vendor.name_from_sheet(ws.title) or vendor_name
+    if vendor.name_from_filename:
+        vendor_name = vendor.name_from_filename(Path(path).stem) or vendor_name
 
     return ConversionResult(
         vendor=vendor,
