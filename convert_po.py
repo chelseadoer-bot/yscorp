@@ -53,6 +53,9 @@ def main(argv=None) -> int:
     parser.add_argument("-o", "--out-dir", default=".", help="출력 폴더 (기본: 현재 폴더)")
     parser.add_argument("--date", help="파일명 날짜 YYMMDD (기본: 원본에서 추출 또는 오늘)")
     parser.add_argument("--vendor", help="업체명 강제 지정 (기본: 자동 감지)")
+    parser.add_argument("--merge", action="store_true",
+                        help="여러 파일을 하나로 합쳐 '날짜_통합_발주 수정본.xlsx' 로 저장")
+    parser.add_argument("--merge-name", default="통합", help="--merge 시 파일명에 쓸 이름 (기본: 통합)")
     args = parser.parse_args(argv)
 
     out_dir = Path(args.out_dir)
@@ -71,6 +74,9 @@ def main(argv=None) -> int:
         print("변환할 파일을 찾을 수 없습니다.", file=sys.stderr)
         return 1
 
+    if args.merge:
+        return _merge(paths, out_dir, date=args.date, merge_name=args.merge_name)
+
     print(f"발주양식 통합 변환 시작 — {len(paths)}개 파일")
     ok = 0
     for path in paths:
@@ -78,6 +84,37 @@ def main(argv=None) -> int:
             ok += 1
     print(f"완료: {ok}/{len(paths)}개 변환  →  {out_dir.resolve()}")
     return 0 if ok == len(paths) else 2
+
+
+def _merge(paths, out_dir, *, date=None, merge_name="통합") -> int:
+    """여러 파일을 하나로 합쳐 저장한다(NO 연속 채번)."""
+    all_rows = []
+    dates = []
+    print(f"통합 변환 시작 — {len(paths)}개 파일 → 1개 파일")
+    for path in paths:
+        try:
+            result = convert_workbook(str(path))
+        except Exception as exc:  # noqa: BLE001
+            print(f"  ✗ {path.name}: {exc}", file=sys.stderr)
+            continue
+        for row in result.rows:
+            row = dict(row)
+            row["no"] = len(all_rows) + 1
+            all_rows.append(row)
+        if result.date:
+            dates.append(result.date)
+        print(f"  ✓ {path.name} ({len(result.rows)}건, 양식='{result.vendor.key}')")
+
+    if not all_rows:
+        print("합칠 데이터가 없습니다.", file=sys.stderr)
+        return 1
+
+    file_date = date or (dates[0] if dates else _today_yymmdd())
+    out_name = build_output_filename(file_date, merge_name)
+    out_path = out_dir / out_name
+    write_output(all_rows, str(out_path), sheet_title=f"{file_date}_{merge_name}")
+    print(f"완료: 총 {len(all_rows)}건 통합  →  {out_name}")
+    return 0
 
 
 if __name__ == "__main__":

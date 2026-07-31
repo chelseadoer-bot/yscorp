@@ -40,12 +40,21 @@
     <p id="empty" class="empty">아직 올린 파일이 없습니다. 위 영역에 발주 엑셀을 올려 시작하세요.</p>
 
     <div id="bulk" class="bulk" hidden>
-      <span>변환된 파일 <b id="bulk-count">0</b>개를 한 번에 받을 수 있어요.</span>
-      <button id="bulk-btn" class="btn btn-primary">전체 다운로드</button>
+      <div class="bulk-info">
+        <span><b id="bulk-count">0</b>개 파일 · 총 <b id="merge-total">0</b>건</span>
+        <span class="merge-opts">
+          <label>통합본 <input type="text" id="merge-date" inputmode="numeric" maxlength="8" placeholder="날짜"></label>
+          <input type="text" id="merge-name" value="통합" aria-label="통합본 이름">
+        </span>
+      </div>
+      <div class="bulk-actions">
+        <button id="merge-btn" class="btn btn-primary">통합본 1개로 받기</button>
+        <button id="each-btn" class="btn btn-ghost">업체별 따로 받기</button>
+      </div>
     </div>
 
     <footer>
-      정리 규칙: 우편번호 5자리 통일 · 상품명 내 수량 분리 · 주소 정리 · 표준 서식(맑은 고딕) 적용<br>
+      여러 파일을 올리면 <b>하나로 합쳐</b> 받을 수 있습니다 · 우편번호·주소 정리, 수량 분리, 표준 서식(맑은 고딕) 자동 적용<br>
       제작: 발주양식 통합 서비스
     </footer>
   </div>

@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""업체별 발주 양식 정의: 자동 감지 시그니처 + 최종양식(12열) 매핑.
+"""업체별 발주 양식 정의: 자동 감지 시그니처 + 최종 통합본(12열) 매핑.
 
-최종양식: NO · 주문인명 · 주문인핸드폰번호 · 수령인명 · 수령인핸드폰번호 · 우편번호 ·
-주소 · 배송메세지 · 상품정보 · 주문수량 · 택배사 · 송장번호
-새 업체를 추가하려면 아래 ``VENDORS`` 리스트에 ``Vendor`` 하나를 등록하면 된다.
+표준 필드: orderer(주문인명) · recipient(수령인명) · phone(수령인핸드폰) · postcode · address ·
+message(배송메세지) · product(상품정보) · qty(주문수량) · courier(택배사) · invoice(송장번호)
+- 주문인 정보가 없는 양식은 orderer 를 recipient 로 채운다(앞 열이 비지 않도록).
 """
 from __future__ import annotations
 
@@ -29,14 +29,13 @@ def normalize_header(value) -> str:
 
 
 class Row:
-    """한 데이터 행 접근자. ``h(header)`` 헤더로, ``pos(idx)`` 열 위치(1-based)로."""
+    """한 데이터 행 접근자. ``h(*headers)`` 후보 헤더 중 먼저 값이 있는 것, ``pos(idx)`` 열 위치."""
 
     def __init__(self, values: List, header_map: Dict[str, int]):
         self._values = values
         self._header_map = header_map
 
     def h(self, *headers: str):
-        """여러 후보 헤더 중 먼저 값이 있는 것을 반환(양식별 헤더명 차이 대응)."""
         for header in headers:
             idx = self._header_map.get(normalize_header(header))
             if idx:
@@ -71,109 +70,91 @@ class Vendor:
         return all(s in present for s in self.signature_norm)
 
 
+def _std(orderer, recipient, phone, postcode, address, message, product, qty, courier, invoice):
+    """표준 행 생성. 주문인명이 비면 수령인명으로 채운다."""
+    recipient = clean_text(recipient)
+    orderer = clean_text(orderer) or recipient
+    return {
+        "orderer": orderer, "recipient": recipient, "phone": normalize_phone(phone),
+        "postcode": postcode, "address": address, "message": clean_text(message),
+        "product": product, "qty": qty, "courier": clean_text(courier), "invoice": clean_text(invoice),
+    }
+
+
 # ---------------------------------------------------------------------------
-# 업체별 행 매핑 → 최종양식 12열
-# (수령인만 있는 양식은 주문인명/주문인핸드폰번호를 비워 둔다)
+# 업체별 행 매핑
 # ---------------------------------------------------------------------------
+def _map_ys(row: Row) -> dict:
+    """이미 최종양식(12열)인 파일: 그대로 통과 + 가벼운 정리."""
+    return _std(
+        orderer=row.h("주문인명", "주문자명"),
+        recipient=row.h("수령인명", "수취인명"),
+        phone=row.h("수령인핸드폰번호", "수령인핸드폰", "수령인연락처"),
+        postcode=clean_postcode(row.h("우편번호", "우편")),
+        address=clean_address(row.h("주소", "배송지")),
+        message=row.h("배송메세지", "배송메모", "전언"),
+        product=clean_text(row.h("상품정보", "상품명")),
+        qty=parse_int(row.h("주문수량", "수량")),
+        courier=row.h("택배사", "택배사명"), invoice=row.h("송장번호", "운송장번호"),
+    )
+
+
 def _map_unier(row: Row) -> dict:
     product = clean_text(row.h("상품명"))
     attr = clean_text(row.h("속성1 속성2"))
     if attr:
         product = f"{product} {attr}".strip()
-    return {
-        "orderer": "", "orderer_phone": "",
-        "recipient": clean_text(row.h("수신인")),
-        "recipient_phone": normalize_phone(row.h("연락처1")),
-        "postcode": clean_postcode(row.h("우편번호")),
-        "address": clean_address(row.h("주소"), strip_trailing_contact=True),
-        "message": clean_text(row.h("배송메모")),
-        "product": product,
-        "qty": parse_int(row.h("실수량")),
-        "courier": clean_text(row.h("택배사명")),
-        "invoice": clean_text(row.h("송장번호")),
-    }
+    name = row.h("수신인")
+    return _std(
+        orderer=name, recipient=name, phone=row.h("연락처1"),
+        postcode=clean_postcode(row.h("우편번호")),
+        address=clean_address(row.h("주소"), strip_trailing_contact=True),
+        message=row.h("배송메모"), product=product, qty=parse_int(row.h("실수량")),
+        courier=row.h("택배사명"), invoice=row.h("송장번호"),
+    )
 
 
 def _map_blueberry(row: Row) -> dict:
     product, qty = split_product_qty(row.h("주문상품명") or row.pos(4))
-    return {
-        "orderer": "", "orderer_phone": "",
-        "recipient": clean_text(row.h("수령인명")),
-        "recipient_phone": normalize_phone(row.h("수령인연락처")),
-        "postcode": "",
-        "address": clean_address(row.h("주소")),
-        "message": clean_text(row.h("배송시 요청사항")),
-        "product": product, "qty": qty,
-        "courier": "", "invoice": "",
-    }
+    name = row.h("수령인명")
+    return _std(
+        orderer=name, recipient=name, phone=row.h("수령인연락처"),
+        postcode="", address=clean_address(row.h("주소")),
+        message=row.h("배송시 요청사항"), product=product, qty=qty, courier="", invoice="",
+    )
 
 
 def _map_chikjeup(row: Row) -> dict:
     product, qty = split_product_qty(row.h("주문상품명"))
-    return {
-        "orderer": "", "orderer_phone": "",
-        "recipient": clean_text(row.h("수령인")),
-        "recipient_phone": normalize_phone(row.h("수령인연락처")),
-        "postcode": "",
-        "address": clean_address(row.h("주소")),
-        "message": clean_text(row.h("비고")),
-        "product": product, "qty": qty,
-        "courier": "", "invoice": "",
-    }
+    name = row.h("수령인")
+    return _std(
+        orderer=name, recipient=name, phone=row.h("수령인연락처"),
+        postcode="", address=clean_address(row.h("주소")),
+        message=row.h("비고"), product=product, qty=qty, courier="", invoice="",
+    )
 
 
 def _map_fashiongeo(row: Row) -> dict:
     pa = extract_postcode_from_address(row.h("배송지"))
-    return {
-        "orderer": clean_text(row.h("주문자명")),
-        "orderer_phone": normalize_phone(row.h("주문자 전화번호")),
-        "recipient": clean_text(row.h("수취인 명")),
-        "recipient_phone": normalize_phone(row.h("수취인 휴대폰번호", "수취인 전화번호")),
-        "postcode": clean_postcode(pa[0]),
-        "address": pa[1],
-        "message": clean_text(row.h("배송메세지")),
-        "product": clean_text(row.h("품목명")),
-        "qty": parse_int(row.h("수량")),
-        "courier": clean_text(row.h("택배사")),
-        "invoice": clean_text(row.h("송장번호")),
-    }
-
-
-def _map_ys(row: Row) -> dict:
-    """이미 최종양식(12열)인 파일(예: ys_..._발주): 헤더 그대로 통과 + 가벼운 정리.
-
-    헤더명이 조금 달라도(주문인핸드폰 vs 주문인핸드폰번호) 매핑되도록 후보를 여러 개 둔다.
-    """
-    return {
-        "orderer": clean_text(row.h("주문인명", "주문자명")),
-        "orderer_phone": normalize_phone(row.h("주문인핸드폰번호", "주문인핸드폰", "주문인연락처")),
-        "recipient": clean_text(row.h("수령인명", "수취인명")),
-        "recipient_phone": normalize_phone(row.h("수령인핸드폰번호", "수령인핸드폰", "수령인연락처")),
-        "postcode": clean_postcode(row.h("우편번호", "우편")),
-        "address": clean_address(row.h("주소", "배송지")),
-        "message": clean_text(row.h("배송메세지", "배송메모", "전언")),
-        "product": clean_text(row.h("상품정보", "상품명")),
-        "qty": parse_int(row.h("주문수량", "수량")),
-        "courier": clean_text(row.h("택배사", "택배사명")),
-        "invoice": clean_text(row.h("송장번호", "운송장번호")),
-    }
+    return _std(
+        orderer=row.h("주문자명"), recipient=row.h("수취인 명"),
+        phone=row.h("수취인 휴대폰번호", "수취인 전화번호"),
+        postcode=clean_postcode(pa[0]), address=pa[1], message=row.h("배송메세지"),
+        product=clean_text(row.h("품목명")), qty=parse_int(row.h("수량")),
+        courier=row.h("택배사"), invoice=row.h("송장번호"),
+    )
 
 
 def _map_daon(row: Row) -> dict:
-    """다온에프앤씨: 주문인/받는인/주문인핸드폰/받는인핸드폰/우편/배송지/전언/상품명/수량."""
-    return {
-        "orderer": clean_text(row.h("주문인")),
-        "orderer_phone": normalize_phone(row.h("주문인핸드폰", "주문인연락처")),
-        "recipient": clean_text(row.h("받는인")),
-        "recipient_phone": normalize_phone(row.h("받는인핸드폰", "받는인연락처")),
-        "postcode": clean_postcode(row.h("우편", "우편번호")),
-        "address": clean_address(row.h("배송지", "주소")),
-        "message": clean_text(row.h("전언", "배송메세지", "배송메모")),
-        "product": clean_text(row.h("상품명", "상품정보")),
-        "qty": parse_int(row.h("수량", "주문수량")),
-        "courier": clean_text(row.h("택배사", "택배사명")),
-        "invoice": clean_text(row.h("송장번호", "운송장번호")),
-    }
+    return _std(
+        orderer=row.h("주문인"), recipient=row.h("받는인"),
+        phone=row.h("받는인핸드폰", "받는인연락처"),
+        postcode=clean_postcode(row.h("우편", "우편번호")),
+        address=clean_address(row.h("배송지", "주소")),
+        message=row.h("전언", "배송메세지", "배송메모"),
+        product=clean_text(row.h("상품명", "상품정보")), qty=parse_int(row.h("수량", "주문수량")),
+        courier=row.h("택배사", "택배사명"), invoice=row.h("송장번호", "운송장번호"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -196,14 +177,12 @@ def _fashiongeo_name(sheet_name: str) -> Optional[str]:
 
 
 def _daon_name(stem: str) -> Optional[str]:
-    # 예) "주식회사다온에프앤씨_주와이에스_2020..." → "다온에프앤씨"
     first = re.split(r"[_\s]", stem or "", 1)[0]
     first = re.sub(r"주식회사|\(주\)", "", first).strip()
     return first or None
 
 
 def _ys_name(stem: str) -> Optional[str]:
-    # 예) "ys_미페마발주_0730" → "미페마"
     s = re.sub(r"(?i)^ys[_\s]*", "", stem or "")
     s = re.sub(r"\d{4,8}", "", s)
     s = re.sub(r"발주\s*수정본|발주서|발주건|발주|수정본", "", s)
@@ -215,7 +194,6 @@ def _ys_name(stem: str) -> Optional[str]:
 # 등록된 업체 목록
 # ---------------------------------------------------------------------------
 VENDORS: List[Vendor] = [
-    # 이미 최종양식(12열)인 파일 — 헤더 그대로 인식해 통과
     Vendor(key="ys", default_name="YS",
            signature=["주문인명", "수령인명", "상품정보"], map_row=_map_ys,
            name_from_filename=_ys_name),
@@ -238,7 +216,6 @@ VENDORS: List[Vendor] = [
 
 
 def detect_vendor(present_headers: set) -> Optional[Vendor]:
-    """헤더 집합에 가장 잘 맞는 업체를 반환(가장 많은 시그니처가 일치)."""
     best, best_score = None, 0
     for vendor in VENDORS:
         if vendor.matches(present_headers) and len(vendor.signature_norm) > best_score:
