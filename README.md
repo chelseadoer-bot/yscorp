@@ -23,8 +23,10 @@ web/
 ```
 
 **바로 쓰기 (설치 불필요)**
-- 로컬: `web/index.html` 을 브라우저로 열면 끝. (인터넷 없이도 동작)
-- 팀 공유: 저장소를 GitHub Pages로 켜면 `.../web/` 주소로 접속해 함께 사용.
+- 🌐 **공용 주소(자동 배포)**: **https://chelseadoer-bot.github.io/yscorp/**
+  `web/` 가 바뀌어 push 될 때마다 `.github/workflows/deploy-pages.yml` 가 이 주소로 자동 배포한다.
+  (링크만 공유하면 팀 누구나 항상 최신 버전을 사용 — 북마크 권장)
+- 로컬: `web/index.html` 을 브라우저로 열어도 됨(인터넷 없이 동작).
 
 **단일 파일로 배포**
 ```bash

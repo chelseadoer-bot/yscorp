@@ -32,8 +32,6 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true   # Pages가 꺼져 있으면 워크플로가 자동으로 켠다(수동 설정 불필요)
 
       - name: Upload site (web/)
         uses: actions/upload-pages-artifact@v3
