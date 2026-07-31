@@ -139,6 +139,26 @@ def _map_fashiongeo(row: Row) -> dict:
     }
 
 
+def _map_ys(row: Row) -> dict:
+    """이미 최종양식(12열)인 파일(예: ys_..._발주): 헤더 그대로 통과 + 가벼운 정리.
+
+    헤더명이 조금 달라도(주문인핸드폰 vs 주문인핸드폰번호) 매핑되도록 후보를 여러 개 둔다.
+    """
+    return {
+        "orderer": clean_text(row.h("주문인명", "주문자명")),
+        "orderer_phone": normalize_phone(row.h("주문인핸드폰번호", "주문인핸드폰", "주문인연락처")),
+        "recipient": clean_text(row.h("수령인명", "수취인명")),
+        "recipient_phone": normalize_phone(row.h("수령인핸드폰번호", "수령인핸드폰", "수령인연락처")),
+        "postcode": clean_postcode(row.h("우편번호", "우편")),
+        "address": clean_address(row.h("주소", "배송지")),
+        "message": clean_text(row.h("배송메세지", "배송메모", "전언")),
+        "product": clean_text(row.h("상품정보", "상품명")),
+        "qty": parse_int(row.h("주문수량", "수량")),
+        "courier": clean_text(row.h("택배사", "택배사명")),
+        "invoice": clean_text(row.h("송장번호", "운송장번호")),
+    }
+
+
 def _map_daon(row: Row) -> dict:
     """다온에프앤씨: 주문인/받는인/주문인핸드폰/받는인핸드폰/우편/배송지/전언/상품명/수량."""
     return {
@@ -182,10 +202,23 @@ def _daon_name(stem: str) -> Optional[str]:
     return first or None
 
 
+def _ys_name(stem: str) -> Optional[str]:
+    # 예) "ys_미페마발주_0730" → "미페마"
+    s = re.sub(r"(?i)^ys[_\s]*", "", stem or "")
+    s = re.sub(r"\d{4,8}", "", s)
+    s = re.sub(r"발주\s*수정본|발주서|발주건|발주|수정본", "", s)
+    s = re.sub(r"[_\s]+", " ", s).strip()
+    return s or None
+
+
 # ---------------------------------------------------------------------------
 # 등록된 업체 목록
 # ---------------------------------------------------------------------------
 VENDORS: List[Vendor] = [
+    # 이미 최종양식(12열)인 파일 — 헤더 그대로 인식해 통과
+    Vendor(key="ys", default_name="YS",
+           signature=["주문인명", "수령인명", "상품정보"], map_row=_map_ys,
+           name_from_filename=_ys_name),
     Vendor(key="unier", default_name="유니어",
            signature=["수신인", "상품명", "실수량"], map_row=_map_unier,
            name_from_headers=_unier_name),

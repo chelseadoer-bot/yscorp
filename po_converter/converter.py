@@ -55,10 +55,21 @@ def _to_yymmdd(value) -> Optional[str]:
 
 
 def _date_from_filename(path: str) -> Optional[str]:
-    """파일명에 들어있는 날짜(YYMMDD / YYYYMMDD)를 추출."""
+    """파일명에 들어있는 날짜를 YYMMDD로 추출.
+
+    - YYYYMMDD / YYMMDD (예: 20260730, 260730) → 그대로
+    - MMDD (예: 0730) → 올해 연도(YY)를 앞에 붙임 → 260730
+    """
+    import datetime
+
     name = Path(path).stem
     m = re.search(r"(?:20)?(\d{2})(\d{2})(\d{2})", name)
-    return f"{m.group(1)}{m.group(2)}{m.group(3)}" if m else None
+    if m:
+        return f"{m.group(1)}{m.group(2)}{m.group(3)}"
+    m = re.search(r"(?<!\d)(\d{2})(\d{2})(?!\d)", name)
+    if m and 1 <= int(m.group(1)) <= 12 and 1 <= int(m.group(2)) <= 31:
+        return f"{datetime.date.today():%y}{m.group(1)}{m.group(2)}"
+    return None
 
 
 def convert_workbook(path: str, sheet: Optional[str] = None) -> ConversionResult:

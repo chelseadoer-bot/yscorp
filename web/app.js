@@ -120,8 +120,13 @@
   }
   function dateFromFilename(name) {
     const stem = String(name || "").replace(/\.[^.]+$/, "");
-    const m = stem.match(/(?:20)?(\d{2})(\d{2})(\d{2})/);
-    return m ? m[1] + m[2] + m[3] : null;
+    const m = stem.match(/(?:20)?(\d{2})(\d{2})(\d{2})/);      // YYMMDD / YYYYMMDD
+    if (m) return m[1] + m[2] + m[3];
+    const m2 = stem.match(/(?<!\d)(\d{2})(\d{2})(?!\d)/);       // MMDD → 올해 YY 붙임
+    if (m2 && +m2[1] >= 1 && +m2[1] <= 12 && +m2[2] >= 1 && +m2[2] <= 31) {
+      return String(new Date().getFullYear()).slice(2) + m2[1] + m2[2];
+    }
+    return null;
   }
   function normalizeHeader(v) {
     return v === null || v === undefined ? "" : String(v).trim().replace(/\s+/g, "");
@@ -147,6 +152,23 @@
   // =====================================================================
   // 업체별 매핑 → 12열
   // =====================================================================
+  function mapYs(row) {
+    // 이미 최종양식(12열)인 파일: 헤더 그대로 통과 + 가벼운 정리
+    return {
+      orderer: cleanText(row.h("주문인명", "주문자명")),
+      orderer_phone: normalizePhone(row.h("주문인핸드폰번호", "주문인핸드폰", "주문인연락처")),
+      recipient: cleanText(row.h("수령인명", "수취인명")),
+      recipient_phone: normalizePhone(row.h("수령인핸드폰번호", "수령인핸드폰", "수령인연락처")),
+      postcode: cleanPostcode(row.h("우편번호", "우편")),
+      address: cleanAddress(row.h("주소", "배송지")),
+      message: cleanText(row.h("배송메세지", "배송메모", "전언")),
+      product: cleanText(row.h("상품정보", "상품명")),
+      qty: parseIntSafe(row.h("주문수량", "수량")),
+      courier: cleanText(row.h("택배사", "택배사명")),
+      invoice: cleanText(row.h("송장번호", "운송장번호")),
+    };
+  }
+
   function mapUnier(row) {
     let product = cleanText(row.h("상품명"));
     const attr = cleanText(row.h("속성1 속성2"));
@@ -236,8 +258,16 @@
     const first = stem.split(/[_\s]/)[0].replace(/주식회사|\(주\)/g, "").trim();
     return first || null;
   }
+  function ysName(filename) {
+    const stem = String(filename || "").replace(/\.[^.]+$/, "");
+    let s = stem.replace(/^ys[_\s]*/i, "").replace(/\d{4,8}/g, "");
+    s = s.replace(/발주\s*수정본|발주서|발주건|발주|수정본/g, "").replace(/[_\s]+/g, " ").trim();
+    return s || null;
+  }
 
   const VENDORS = [
+    { key: "ys", label: "YS(최종양식)", defaultName: "YS",
+      signature: ["주문인명", "수령인명", "상품정보"], mapRow: mapYs, nameFromFilename: ysName, nameConfident: true },
     { key: "unier", label: "유니어", defaultName: "유니어",
       signature: ["수신인", "상품명", "실수량"], mapRow: mapUnier, nameFromHeaders: unierName, nameConfident: true },
     { key: "fashiongeo", label: "패션지오", defaultName: "패션지오",

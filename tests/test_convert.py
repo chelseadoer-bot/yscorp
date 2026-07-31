@@ -156,6 +156,28 @@ def test_daon():
     print("  ✓ 다온에프앤씨")
 
 
+def test_ys_already_final():
+    # 이미 최종양식(12열)인 파일. 헤더명이 조금 달라도(주문인핸드폰) 인식.
+    p = _make(
+        os.path.join(tempfile.gettempdir(), "_t_ys.xlsx"),
+        ["NO", "주문인명", "주문인핸드폰", "수령인명", "수령인핸드폰번호", "우편번호",
+         "주소", "배송메세지", "상품정보", "주문수량", "택배사", "송장번호"],
+        [[1, "", "", "박영미", "010-5536-2123", "38409", "경상북도 경산시 하양읍 서사리 278",
+          "문 앞", "김소형원방의 호박팥차 (1gX100티백)", 1, "CJ대한통운", "6993-8654-5884"]],
+    )
+    p2 = os.path.join(tempfile.gettempdir(), "ys_미페마발주_0730.xlsx")
+    os.replace(p, p2)
+    r = convert_workbook(p2)
+    assert r.vendor.key == "ys"
+    assert r.vendor_name == "미페마"      # 파일명에서 추출
+    assert r.date == "260730"             # 0730(MMDD) → 올해 YY 붙임
+    row = r.rows[0]
+    assert row["orderer"] == "" and row["recipient"] == "박영미"
+    assert row["recipient_phone"] == "010-5536-2123"       # 주문인핸드폰(짧은 헤더) 인식
+    assert row["postcode"] == "38409" and row["invoice"] == "6993-8654-5884"
+    print("  ✓ ys(최종양식 통과)")
+
+
 def test_output_format():
     p = _make(
         os.path.join(tempfile.gettempdir(), "_t_chik2_260730.xlsx"),
