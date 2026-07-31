@@ -126,3 +126,18 @@ def parse_int(value, default: Optional[int] = 1) -> Optional[int]:
         return default
     m = re.search(r"\d+", text)
     return int(m.group()) if m else default
+
+
+def append_qty(product: str, qty) -> str:
+    """수량이 별도 열에 있는 양식(유니어·패션지오)에서 2개 이상이면 상품명 끝에 '/N개' 표기.
+
+    (기준 260730 양식은 수량을 상품명 안에 두므로 정보 손실을 막기 위해 붙인다.)
+    """
+    product = (product or "").strip()
+    try:
+        n = int(qty)
+    except (TypeError, ValueError):
+        return product
+    if n > 1:
+        return f"{product} /{n}개".strip()
+    return product

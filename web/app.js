@@ -1,50 +1,41 @@
 /* 발주양식 통합 서비스 — 브라우저 변환 엔진 + UI
  * 모든 처리는 브라우저 안에서만 이루어집니다. (파일이 서버로 전송되지 않음)
+ * 표준 출력 양식(기준: 260730): 수령인명·수령인연락처·주소·주문상품명·배송시 요청사항
  * 엑셀 입출력: ExcelJS (전역 ExcelJS)
  */
 (function () {
   "use strict";
 
   // =====================================================================
-  // 표준 출력 양식 정의 (기준: 통합본)
+  // 표준 출력 양식 정의 (기준: 260730 파일)
   // =====================================================================
   const STANDARD_COLUMNS = [
-    { key: "no",        header: "NO" },
-    { key: "orderer",   header: "주문인명" },
     { key: "recipient", header: "수령인명" },
-    { key: "phone",     header: "수령인핸드폰번호" },
-    { key: "phone2",    header: "수령인핸드폰번호" },
-    { key: "postcode",  header: "우편번호" },
+    { key: "phone",     header: "수령인연락처" },
     { key: "address",   header: "주소" },
-    { key: "message",   header: "배송메세지" },
-    { key: "product",   header: "상품정보" },
-    { key: "qty",       header: "주문수량" },
-    { key: "courier",   header: "택배사" },
-    { key: "invoice",   header: "송장번호" },
+    { key: "product",   header: "주문상품명" },
+    { key: "message",   header: "배송시 요청사항" },
   ];
   const FIELD_KEYS = STANDARD_COLUMNS.map((c) => c.key);
   const HEADERS = STANDARD_COLUMNS.map((c) => c.header);
-  const WIDTHS = [4.25, 12.625, 13, 15, 13, 8.375, 23.25, 6.5, 42.25, 8, 13, 14.375];
-  const CENTER_COLS = new Set([1, 2, 3, 10]);       // NO, 주문인명, 수령인명, 주문수량
-  const HEADER_FILL_COLS = new Set([11, 12]);       // 택배사, 송장번호 (연한 주황)
-  const TEXT_COLS = new Set([4, 5, 6, 12]);         // 전화/우편/송장 → 텍스트 서식
+  const WIDTHS = [13, 13, 13, 72.38, 13];   // 260730 파일 열너비
   const FONT_NAME = "맑은 고딕";
+  const FONT_SIZE = 11;
+  const PHONE_COL = 2;                        // 전화번호 열(텍스트 서식)
 
   // =====================================================================
-  // 값 → 문자열 변환 (ExcelJS 셀 값의 다양한 형태 처리)
+  // 값 → 문자열
   // =====================================================================
   function cellToText(v) {
     if (v === null || v === undefined) return "";
     if (v instanceof Date) {
-      const y = v.getFullYear(), m = v.getMonth() + 1, d = v.getDate();
-      return `${y}${String(m).padStart(2, "0")}${String(d).padStart(2, "0")}`;
+      return `${v.getFullYear()}${String(v.getMonth() + 1).padStart(2, "0")}${String(v.getDate()).padStart(2, "0")}`;
     }
     if (typeof v === "object") {
       if (Array.isArray(v.richText)) return v.richText.map((t) => t.text).join("");
       if ("text" in v) return String(v.text);
       if ("result" in v) return cellToText(v.result);
-      if ("formula" in v) return "";
-      if ("error" in v) return "";
+      if ("formula" in v || "error" in v) return "";
       return String(v);
     }
     return String(v);
@@ -62,32 +53,7 @@
 
   function normalizePhone(v) {
     let t = cleanText(v);
-    if (!t) return "";
-    return t.replace(/~/g, "-").replace(/\s/g, "");
-  }
-
-  function cleanPostcode(v) {
-    let t = cleanText(v);
-    if (!t) return "";
-    let digits = t.replace(/\D/g, "");
-    if (digits.length === 4) digits = "0" + digits;      // 엑셀이 날린 앞자리 0 복원
-    if (digits.length === 5) return digits.slice(0, 3) + "-" + digits.slice(3);
-    if (digits.length === 6) return digits.slice(0, 3) + "-" + digits.slice(3);
-    return t.replace(/-{2,}/g, "-");
-  }
-
-  const QTY_TAIL = /\s*[/·\-]?\s*(\d+)\s*개\s*$/;
-  function splitProductQty(v, defaultQty) {
-    if (defaultQty === undefined) defaultQty = 1;
-    let t = cleanText(v);
-    if (!t) return { product: "", qty: defaultQty };
-    const m = t.match(QTY_TAIL);
-    if (m) {
-      const qty = parseInt(m[1], 10);
-      let product = t.slice(0, m.index).replace(/[\s/·\-▶]+$/, "").trim();
-      return { product: product, qty: qty };
-    }
-    return { product: t, qty: defaultQty };
+    return t ? t.replace(/~/g, "-").replace(/\s/g, "") : "";
   }
 
   const ADDR_POST = /^\s*\[\s*(\d{3})\s*-?\s*(\d{2})\s*\]\s*/;
@@ -105,11 +71,8 @@
     if (v === null || v === undefined) return "";
     let t = String(v).trim();
     if (t.toLowerCase() === "nan") return "";
-    if (stripTrailingContact) {
-      t = t.replace(ADDR_TAIL_NAMEPHONE, "").replace(ADDR_TAIL_PHONE, "");
-    }
-    t = t.replace(/~/g, "-");
-    return t.replace(/\s+/g, " ").trim();
+    if (stripTrailingContact) t = t.replace(ADDR_TAIL_NAMEPHONE, "").replace(ADDR_TAIL_PHONE, "");
+    return t.replace(/~/g, "-").replace(/\s+/g, " ").trim();
   }
 
   function parseIntSafe(v, def) {
@@ -120,15 +83,27 @@
     return m ? parseInt(m[0], 10) : def;
   }
 
+  // 수량이 별도 열에 있는 양식(유니어·패션지오): 2개 이상이면 상품명 끝에 '/N개' 표기
+  function appendQty(product, qty) {
+    product = (product || "").trim();
+    const n = parseInt(qty, 10);
+    return n > 1 ? `${product} /${n}개`.trim() : product;
+  }
+
   function toYYMMDD(v) {
     const t = cleanText(v).replace(/[-.]/g, "");
     const m = t.match(/(?:20)?(\d{2})(\d{2})(\d{2})/);
     return m ? m[1] + m[2] + m[3] : null;
   }
 
+  function dateFromFilename(name) {
+    const stem = String(name || "").replace(/\.[^.]+$/, "");
+    const m = stem.match(/(?:20)?(\d{2})(\d{2})(\d{2})/);
+    return m ? m[1] + m[2] + m[3] : null;
+  }
+
   function normalizeHeader(v) {
-    if (v === null || v === undefined) return "";
-    return String(v).trim().replace(/\s+/g, "");
+    return v === null || v === undefined ? "" : String(v).trim().replace(/\s+/g, "");
   }
 
   // =====================================================================
@@ -140,67 +115,55 @@
         const idx = headerMap[normalizeHeader(header)];
         return idx ? values[idx - 1] : undefined;
       },
-      pos: function (idx) {
-        return idx >= 1 && idx <= values.length ? values[idx - 1] : undefined;
-      },
+      pos: function (idx) { return idx >= 1 && idx <= values.length ? values[idx - 1] : undefined; },
     };
   }
 
   // =====================================================================
-  // 업체별 매핑
+  // 업체별 매핑 → 표준 5열
   // =====================================================================
   function mapUnier(row) {
-    const name = cleanText(row.h("수신인"));
-    const phone = normalizePhone(row.h("연락처1"));
     let product = cleanText(row.h("상품명"));
     const attr = cleanText(row.h("속성1 속성2"));
     if (attr) product = (product + " " + attr).trim();
+    product = appendQty(product, parseIntSafe(row.h("실수량")));
     return {
-      orderer: name, recipient: name, phone: phone, phone2: phone,
-      postcode: cleanPostcode(row.h("우편번호")),
+      recipient: cleanText(row.h("수신인")),
+      phone: normalizePhone(row.h("연락처1")),
       address: cleanAddress(row.h("주소"), true),
+      product: product,
       message: cleanText(row.h("배송메모")),
-      product: product, qty: parseIntSafe(row.h("실수량")),
-      courier: cleanText(row.h("택배사명")), invoice: cleanText(row.h("송장번호")),
     };
   }
 
   function mapBlueberry(row) {
-    const name = cleanText(row.h("수령인명"));
-    const phone = normalizePhone(row.h("수령인연락처"));
-    const pq = splitProductQty(row.h("주문상품명") || row.pos(4));
     return {
-      orderer: name, recipient: name, phone: phone, phone2: phone,
-      postcode: "", address: cleanAddress(row.h("주소")),
+      recipient: cleanText(row.h("수령인명")),
+      phone: normalizePhone(row.h("수령인연락처")),
+      address: cleanAddress(row.h("주소")),
+      product: cleanText(row.h("주문상품명") || row.pos(4)),  // 수량은 상품명에 포함된 채 유지
       message: cleanText(row.h("배송시 요청사항")),
-      product: pq.product, qty: pq.qty, courier: "", invoice: "",
     };
   }
 
   function mapChikjeup(row) {
-    const name = cleanText(row.h("수령인"));
-    const phone = normalizePhone(row.h("수령인연락처"));
-    const pq = splitProductQty(row.h("주문상품명"));
     return {
-      orderer: name, recipient: name, phone: phone, phone2: phone,
-      postcode: "", address: cleanAddress(row.h("주소")),
+      recipient: cleanText(row.h("수령인")),
+      phone: normalizePhone(row.h("수령인연락처")),
+      address: cleanAddress(row.h("주소")),
+      product: cleanText(row.h("주문상품명")),   // 수량은 상품명에 포함된 채 유지
       message: cleanText(row.h("비고")),
-      product: pq.product, qty: pq.qty, courier: "", invoice: "",
     };
   }
 
   function mapFashiongeo(row) {
-    const orderer = cleanText(row.h("주문자명"));
-    const recipient = cleanText(row.h("수취인 명"));
-    const phone = normalizePhone(row.h("수취인 휴대폰번호") || row.h("수취인 전화번호"));
-    const pa = extractPostcodeFromAddress(row.h("배송지"));
+    const pa = extractPostcodeFromAddress(row.h("배송지"));   // 앞 [509-51] 우편번호 제거
     return {
-      orderer: orderer || recipient, recipient: recipient,
-      phone: phone, phone2: phone,
-      postcode: pa.postcode, address: pa.address,
+      recipient: cleanText(row.h("수취인 명")),
+      phone: normalizePhone(row.h("수취인 휴대폰번호") || row.h("수취인 전화번호")),
+      address: pa.address,
+      product: appendQty(cleanText(row.h("품목명")), parseIntSafe(row.h("수량"))),
       message: cleanText(row.h("배송메세지")),
-      product: cleanText(row.h("품목명")), qty: parseIntSafe(row.h("수량")),
-      courier: cleanText(row.h("택배사")), invoice: cleanText(row.h("송장번호")),
     };
   }
 
@@ -215,23 +178,18 @@
   }
   function fashiongeoName(sheetName) {
     const m = (sheetName || "").match(/\d{6,8}_\s*([^_]+?)\s*발주/);
-    if (m) return m[1].replace(/\(주\)|주식회사/g, "").trim();
-    return null;
+    return m ? m[1].replace(/\(주\)|주식회사/g, "").trim() : null;
   }
 
   const VENDORS = [
     { key: "unier", label: "유니어", defaultName: "유니어",
-      signature: ["수신인", "상품명", "실수량"], mapRow: mapUnier,
-      nameFromHeaders: unierName, nameConfident: true },
+      signature: ["수신인", "상품명", "실수량"], mapRow: mapUnier, nameFromHeaders: unierName, nameConfident: true },
     { key: "fashiongeo", label: "패션지오", defaultName: "패션지오",
-      signature: ["품목명", "수취인 명", "배송지"], mapRow: mapFashiongeo,
-      nameFromSheet: fashiongeoName, dateHeader: "주문일자", nameConfident: true },
+      signature: ["품목명", "수취인 명", "배송지"], mapRow: mapFashiongeo, nameFromSheet: fashiongeoName, dateHeader: "주문일자", nameConfident: true },
     { key: "chikjeup", label: "칡즙", defaultName: "칡즙",
-      signature: ["수령인", "주문상품명", "비고"], mapRow: mapChikjeup,
-      nameConfident: false },
+      signature: ["수령인", "주문상품명", "비고"], mapRow: mapChikjeup, nameConfident: false },
     { key: "blueberry", label: "블루베리퓨레", defaultName: "블루베리퓨레",
-      signature: ["수령인명", "수령인연락처", "배송시 요청사항"], mapRow: mapBlueberry,
-      nameConfident: false },
+      signature: ["수령인명", "수령인연락처", "배송시 요청사항"], mapRow: mapBlueberry, nameConfident: false },
   ].map((v) => Object.assign(v, { signatureNorm: v.signature.map(normalizeHeader) }));
 
   function detectVendor(present) {
@@ -262,8 +220,7 @@
   function findHeaderRow(grid, maxScan) {
     maxScan = Math.min(maxScan || 5, grid.length);
     for (let r = 0; r < maxScan; r++) {
-      const present = new Set();
-      const headerMap = {};
+      const present = new Set(), headerMap = {};
       grid[r].forEach((cell, i) => {
         const norm = normalizeHeader(cell);
         if (norm) { present.add(norm); if (!(norm in headerMap)) headerMap[norm] = i + 1; }
@@ -287,28 +244,26 @@
       const row = makeRow(values, headerMap);
       const std = vendor.mapRow(row);
       if (!cleanText(std.recipient) && !cleanText(std.address)) continue;
-      std.no = rows.length + 1;
       rows.push(std);
       if (orderDate === null && vendor.dateHeader) orderDate = toYYMMDD(row.h(vendor.dateHeader));
     }
     let vendorName = vendor.defaultName;
     if (vendor.nameFromHeaders) vendorName = vendor.nameFromHeaders(headerMap) || vendorName;
     if (vendor.nameFromSheet) vendorName = vendor.nameFromSheet(ws.name) || vendorName;
-    return {
-      vendor: vendor, vendorName: vendorName, nameConfident: vendor.nameConfident,
-      date: orderDate, rows: rows, sheetName: ws.name,
-    };
+    return { vendor: vendor, vendorName: vendorName, nameConfident: vendor.nameConfident, date: orderDate, rows: rows, sheetName: ws.name };
   }
 
-  async function convertArrayBuffer(buffer) {
+  async function convertArrayBuffer(buffer, filename) {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buffer);
-    // 데이터가 있는 시트를 순회하며 인식되는 첫 시트를 사용
     let firstNonEmpty = null;
     for (const ws of wb.worksheets) {
       if (ws.rowCount > 1 && !firstNonEmpty) firstNonEmpty = ws;
       const result = convertSheet(ws);
-      if (result) return result;
+      if (result) {
+        if (!result.date) result.date = dateFromFilename(filename);
+        return result;
+      }
     }
     const err = new Error("업체 양식을 인식하지 못했습니다.");
     err.headers = firstNonEmpty ? sheetToGrid(firstNonEmpty)[0] : [];
@@ -316,7 +271,7 @@
   }
 
   // =====================================================================
-  // 표준 행 → 엑셀 버퍼 (서식 포함)
+  // 표준 행 → 엑셀 버퍼 (260730 서식: 맑은 고딕 11, 테두리/채움 없음)
   // =====================================================================
   async function buildOutputBuffer(rows, sheetTitle) {
     const wb = new ExcelJS.Workbook();
@@ -324,24 +279,11 @@
     ws.columns = STANDARD_COLUMNS.map((c, i) => ({ key: c.key + i, width: WIDTHS[i] }));
     ws.addRow(HEADERS);
     rows.forEach((r) => ws.addRow(FIELD_KEYS.map((k) => (r[k] === undefined || r[k] === null ? "" : r[k]))));
-
-    const border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
-    ws.eachRow({ includeEmpty: true }, (row, rn) => {
-      if (rn === 1) row.height = 30.75;
+    ws.eachRow({ includeEmpty: true }, (row) => {
       for (let cn = 1; cn <= HEADERS.length; cn++) {
         const cell = row.getCell(cn);
-        cell.font = { name: FONT_NAME, size: 10 };
-        cell.border = border;
-        const center = CENTER_COLS.has(cn);
-        cell.alignment = {
-          vertical: "middle",
-          horizontal: rn === 1 ? (cn === 4 || cn === 5 ? "left" : "center") : (center ? "center" : "left"),
-          wrapText: rn === 1,
-        };
-        if (rn === 1 && HEADER_FILL_COLS.has(cn)) {
-          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFCE4D6" } };
-        }
-        if (rn > 1 && TEXT_COLS.has(cn)) cell.numFmt = "@";
+        cell.font = { name: FONT_NAME, size: FONT_SIZE };
+        if (cn === PHONE_COL) cell.numFmt = "@";
       }
     });
     return await wb.xlsx.writeBuffer();
@@ -356,11 +298,10 @@
     return String(d.getFullYear()).slice(2) + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0");
   }
 
-  // 공개 API (테스트/빌드에서 사용)
   window.POEngine = {
-    convertArrayBuffer, buildOutputBuffer, outputFilename, todayYYMMDD,
+    convertArrayBuffer, buildOutputBuffer, outputFilename, todayYYMMDD, dateFromFilename,
     STANDARD_COLUMNS, HEADERS, VENDORS,
-    _clean: { cleanPostcode, splitProductQty, cleanAddress, extractPostcodeFromAddress, normalizePhone },
+    _clean: { normalizePhone, cleanAddress, extractPostcodeFromAddress, appendQty },
   };
 
   // =====================================================================
@@ -368,11 +309,10 @@
   // =====================================================================
   if (typeof document === "undefined") return;
 
-  const state = [];   // 처리된 파일들
+  const state = [];
   let seq = 0;
-
   const els = {};
-  function $(id) { return document.getElementById(id); }
+  const $ = (id) => document.getElementById(id);
 
   function download(buffer, filename) {
     const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -397,16 +337,12 @@
       render();
       try {
         const buf = await file.arrayBuffer();
-        const result = await window.POEngine.convertArrayBuffer(buf);
+        const result = await window.POEngine.convertArrayBuffer(buf, file.name);
         Object.assign(item, {
-          status: "ok",
-          vendorKey: result.vendor.key,
-          formatLabel: result.vendor.label,
-          vendorName: result.vendorName,
-          nameConfident: result.nameConfident,
+          status: "ok", vendorKey: result.vendor.key, formatLabel: result.vendor.label,
+          vendorName: result.vendorName, nameConfident: result.nameConfident,
           date: result.date || window.POEngine.todayYYMMDD(),
-          rows: result.rows,
-          sheetName: result.sheetName,
+          rows: result.rows, sheetName: result.sheetName,
         });
       } catch (e) {
         Object.assign(item, { status: "error", error: e.message, headers: e.headers || [] });
@@ -422,8 +358,10 @@
   }
 
   async function downloadAll() {
-    const oks = state.filter((i) => i.status === "ok");
-    for (const item of oks) { await downloadItem(item); await new Promise((r) => setTimeout(r, 350)); }
+    for (const item of state.filter((i) => i.status === "ok")) {
+      await downloadItem(item);
+      await new Promise((r) => setTimeout(r, 350));
+    }
   }
 
   function removeItem(id) {
@@ -434,12 +372,9 @@
   function previewTable(item) {
     const cols = window.POEngine.STANDARD_COLUMNS;
     const shown = item.rows.slice(0, 6);
-    let head = cols.map((c) => `<th>${esc(c.header)}</th>`).join("");
-    let body = shown.map((r) =>
-      "<tr>" + cols.map((c) => `<td>${esc(r[c.key])}</td>`).join("") + "</tr>"
-    ).join("");
-    const more = item.rows.length > shown.length
-      ? `<div class="preview-more">+ ${item.rows.length - shown.length}건 더</div>` : "";
+    const head = cols.map((c) => `<th>${esc(c.header)}</th>`).join("");
+    const body = shown.map((r) => "<tr>" + cols.map((c) => `<td>${esc(r[c.key])}</td>`).join("") + "</tr>").join("");
+    const more = item.rows.length > shown.length ? `<div class="preview-more">+ ${item.rows.length - shown.length}건 더</div>` : "";
     return `<div class="preview-wrap"><table class="preview"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${more}`;
   }
 
@@ -486,39 +421,29 @@
   function render() {
     const list = $("results");
     const oks = state.filter((i) => i.status === "ok").length;
-    els.bulk.hidden = state.filter((i) => i.status === "ok").length < 2;
+    els.bulk.hidden = oks < 2;
     els.bulkCount.textContent = oks;
-    if (!state.length) {
-      list.innerHTML = "";
-      els.empty.hidden = false;
-      return;
-    }
+    if (!state.length) { list.innerHTML = ""; els.empty.hidden = false; return; }
     els.empty.hidden = true;
     list.innerHTML = state.map(cardHTML).join("");
 
     list.querySelectorAll("[data-download]").forEach((b) =>
-      b.addEventListener("click", () => {
-        const item = state.find((x) => x.id === +b.dataset.download);
-        if (item) downloadItem(item);
-      }));
+      b.addEventListener("click", () => { const it = state.find((x) => x.id === +b.dataset.download); if (it) downloadItem(it); }));
     list.querySelectorAll("[data-remove]").forEach((b) =>
       b.addEventListener("click", () => removeItem(+b.dataset.remove)));
     list.querySelectorAll("input[data-field]").forEach((inp) =>
       inp.addEventListener("input", () => {
-        const item = state.find((x) => x.id === +inp.dataset.id);
-        if (!item) return;
-        item[inp.dataset.field] = inp.value;
-        const out = $("outname-" + item.id);
-        if (out) out.textContent = window.POEngine.outputFilename(item.date, item.vendorName);
+        const it = state.find((x) => x.id === +inp.dataset.id);
+        if (!it) return;
+        it[inp.dataset.field] = inp.value;
+        const out = $("outname-" + it.id);
+        if (out) out.textContent = window.POEngine.outputFilename(it.date, it.vendorName);
       }));
   }
 
   function init() {
-    els.drop = $("drop");
-    els.input = $("file");
-    els.empty = $("empty");
-    els.bulk = $("bulk");
-    els.bulkCount = $("bulk-count");
+    els.drop = $("drop"); els.input = $("file"); els.empty = $("empty");
+    els.bulk = $("bulk"); els.bulkCount = $("bulk-count");
 
     els.drop.addEventListener("click", () => els.input.click());
     els.drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); els.input.click(); } });

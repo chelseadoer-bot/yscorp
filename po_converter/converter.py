@@ -54,6 +54,13 @@ def _to_yymmdd(value) -> Optional[str]:
     return None
 
 
+def _date_from_filename(path: str) -> Optional[str]:
+    """파일명에 들어있는 날짜(YYMMDD / YYYYMMDD)를 추출."""
+    name = Path(path).stem
+    m = re.search(r"(?:20)?(\d{2})(\d{2})(\d{2})", name)
+    return f"{m.group(1)}{m.group(2)}{m.group(3)}" if m else None
+
+
 def convert_workbook(path: str, sheet: Optional[str] = None) -> ConversionResult:
     """원본 파일을 읽어 표준 행 리스트로 변환한다."""
     wb = openpyxl.load_workbook(path, data_only=True)
@@ -85,11 +92,14 @@ def convert_workbook(path: str, sheet: Optional[str] = None) -> ConversionResult
         # 이름/주소가 모두 비어 있으면 유효 주문이 아님
         if not clean_text(std.get("recipient")) and not clean_text(std.get("address")):
             continue
-        std["no"] = len(rows) + 1
         rows.append(std)
 
         if order_date is None and vendor.date_header:
             order_date = _to_yymmdd(row.h(vendor.date_header))
+
+    # 날짜: 데이터 > 파일명 순으로 확정 (없으면 호출부에서 오늘 날짜 사용)
+    if order_date is None:
+        order_date = _date_from_filename(path)
 
     # 업체명 확정
     vendor_name = vendor.default_name
