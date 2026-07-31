@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>발주양식 통합 서비스</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <p class="eyebrow">발주양식 통합</p>
+      <h1>업체 발주 파일을 표준 양식으로 한 번에</h1>
+      <p class="sub">제각기 다른 업체 엑셀을 올리면, 최종 통합 양식(<code>날짜_업체명_발주 수정본.xlsx</code>)으로 정리해 바로 내려받을 수 있습니다.</p>
+      <span class="privacy"><span class="dot"></span> 모든 변환은 브라우저 안에서만 처리됩니다 · 파일이 서버로 전송되지 않습니다</span>
+    </header>
+
+    <div id="drop" class="drop" role="button" tabindex="0" aria-label="엑셀 파일 올리기">
+      <div class="icon" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 16V4M12 4l-4 4M12 4l4 4"></path><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>
+        </svg>
+      </div>
+      <div class="big">엑셀 파일을 여기에 끌어다 놓거나 <span class="browse">선택</span>하세요</div>
+      <div class="small">여러 개를 한 번에 올려도 됩니다 · .xlsx 지원</div>
+    </div>
+
+    <div class="supported">
+      <span class="lbl">자동 인식 업체</span>
+      <span class="tag">유니어</span>
+      <span class="tag">패션지오</span>
+      <span class="tag">칡즙</span>
+      <span class="tag">블루베리퓨레</span>
+    </div>
+
+    <input type="file" id="file" accept=".xlsx,.xlsm,.xls" multiple hidden>
+
+    <div id="results"></div>
+    <p id="empty" class="empty">아직 올린 파일이 없습니다. 위 영역에 발주 엑셀을 올려 시작하세요.</p>
+
+    <div id="bulk" class="bulk" hidden>
+      <span>변환된 파일 <b id="bulk-count">0</b>개를 한 번에 받을 수 있어요.</span>
+      <button id="bulk-btn" class="btn btn-primary">전체 다운로드</button>
+    </div>
+
+    <footer>
+      정리 규칙: 우편번호 5자리 통일 · 상품명 내 수량 분리 · 주소 정리 · 표준 서식(맑은 고딕) 적용<br>
+      제작: 발주양식 통합 서비스
+    </footer>
+  </div>
+
+  <script src="./vendor/exceljs.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

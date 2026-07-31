@@ -12,3 +12,8 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+
+# 빌드 산출물 / 의존성 (web/build.js 로 재생성)
+dist/
+node_modules/
+package-lock.json
